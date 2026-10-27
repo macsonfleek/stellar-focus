@@ -11,8 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -112,7 +110,13 @@ Only fixtures carrying capture provenance can be checked; hand-written ones,
 and ones captured with --sanitize, are skipped and reported as such rather
 than silently passing.
 
-Paths may be files or directories. With no path, testdata is checked.
+Paths may be files, directories or patterns. A directory is searched all the
+way down, so fixtures kept in subdirectories are checked too; a pattern is
+matched like a shell pattern, with "**" standing for any number of
+directories. Hidden directories and the paths listed in a .focusignore file
+are skipped.
+
+With no path, testdata is checked.
 
 A repository with hundreds of fixtures does not need all of them re-fetched on
 every commit, so a run can be narrowed:
@@ -139,6 +143,7 @@ has drifted, and 1 when a fixture could not be checked at all. The exit
 status is the same in either format.`,
 		Example: `  focus verify
   focus verify testdata/ --network mainnet
+  focus verify 'testdata/**/*.golden.json'
   focus verify testdata/ --since 48h
   focus verify testdata/ --filter 'envelope*'
   focus verify testdata/ --filter network:testnet
@@ -427,25 +432,4 @@ func writeVerifyReport(w io.Writer, report *VerifyReport) error {
 		return err
 	}
 	return nil
-}
-
-// collectFixtures expands files and directories into a list of fixture paths.
-func collectFixtures(args []string) ([]string, error) {
-	var out []string
-	for _, arg := range args {
-		info, err := os.Stat(arg)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", arg, err)
-		}
-		if !info.IsDir() {
-			out = append(out, arg)
-			continue
-		}
-		entries, err := filepath.Glob(filepath.Join(arg, "*.golden.json"))
-		if err != nil {
-			return nil, fmt.Errorf("scanning %s: %w", arg, err)
-		}
-		out = append(out, entries...)
-	}
-	return out, nil
 }

@@ -32,7 +32,7 @@ func BenchmarkFixture(b *testing.B, want, got focus.Value, typeName string, opts
 func BenchmarkGolden(b *testing.B) {
 	path := filepath.Join("..", "fuzz", "testdata", "tx_failed.env.txt")
 	if _, err := os.Stat(path); err != nil {
-		path = "../../testdata/tx_failed.env.txt"
+		path = "../../pkg/fuzz/testdata/tx_failed.env.txt"
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

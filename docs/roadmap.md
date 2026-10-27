@@ -122,6 +122,15 @@ Working and tested:
   export to Go fuzz seed corpora
 - `focus capture` and `focus verify` against a live network, from a Soroban
   RPC endpoint or from Horizon, chosen with `--source`
+- Table-driven golden tests: `golden.AssertAll` runs every case in a table,
+  reports the whole table on failure — `[2/5] payment_v2: DRIFTED` — and
+  repeats each failure with the row's index, name and description attached,
+  so a broken row is found without scanning filenames (`pkg/golden/golden.go`)
+- Recursive fixture discovery for `verify`, `lint` and `refresh`: a directory
+  is searched all the way down, so nested fixtures are no longer skipped; a
+  path may be a pattern, with `**` standing for any number of directories;
+  and a `.focusignore` file lists the paths to leave out
+  (`internal/cli/collect.go`)
 - Narrowed verification: `focus verify --since`, `--filter` and `--drifted-only`,
   so a repository with hundreds of fixtures can be re-checked without
   re-fetching all of them, with the fixtures left out reported rather than
@@ -130,6 +139,12 @@ Working and tested:
   with the counts, the status of every fixture and the paths that changed, so
   a pipeline can post a pull-request comment or a step summary without
   parsing terminal text. The exit status is the same in either format
+- Bulk capture: `focus capture tx --batch` reads the hashes from a file and
+  captures them with a worker pool, reporting each transaction as it lands
+  and carrying on past one that cannot be captured (`internal/cli/batch.go`)
+- Offline fixture generation: `focus encode` turns a base64 or hex payload
+  into a reviewable fixture, with the XDR type detected when it is not named
+  and no network involved
 - An embedded fuzz corpus of the repository's captured mainnet XDR, for
   downstream projects that want to fuzz their own decoders (`pkg/fuzz`)
 - Unified CLI configuration: flags, `FOCUS_*` environment variables and a
