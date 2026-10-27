@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar-optics/stellar-focus/pkg/focus"
+	"github.com/stellar-optics/stellar-focus/pkg/simulate"
 )
 
 // fatalTB adapts a focus.TB so reported failures become fatal.
@@ -328,6 +329,43 @@ func EventCount(t focus.TB, meta focus.Value, want int) {
 	focus.AssertEventCount(fatal(t), meta, want)
 }
 
+// EventsEqual is focus.AssertEventsEqual, stopping the test on failure.
+func EventsEqual(t focus.TB, meta focus.Value, want []focus.Event, opts ...focus.EventOption) {
+	t.Helper()
+	focus.AssertEventsEqual(fatal(t), meta, want, opts...)
+}
+
+// Payment is focus.AssertPayment, stopping the test on failure.
+func Payment(t focus.TB, envelope focus.Value, opIndex int, wantDest string, wantAmount int64, wantAsset string) {
+	t.Helper()
+	focus.AssertPayment(fatal(t), envelope, opIndex, wantDest, wantAmount, wantAsset)
+}
+
+// CreateAccount is focus.AssertCreateAccount, stopping the test on failure.
+func CreateAccount(t focus.TB, envelope focus.Value, opIndex int, wantDest string, wantStartingBalance int64) {
+	t.Helper()
+	focus.AssertCreateAccount(fatal(t), envelope, opIndex, wantDest, wantStartingBalance)
+}
+
+// ChangeTrust is focus.AssertChangeTrust, stopping the test on failure.
+func ChangeTrust(t focus.TB, envelope focus.Value, opIndex int, wantAsset string, wantLimit int64) {
+	t.Helper()
+	focus.AssertChangeTrust(fatal(t), envelope, opIndex, wantAsset, wantLimit)
+}
+
+// SorobanResources is focus.AssertSorobanResources, stopping the test on
+// failure.
+func SorobanResources(t focus.TB, envelope focus.Value, maxInstructions uint32, readBytes, writeBytes uint32) {
+	t.Helper()
+	focus.AssertSorobanResources(fatal(t), envelope, maxInstructions, readBytes, writeBytes)
+}
+
+// ResourceFee is focus.AssertResourceFee, stopping the test on failure.
+func ResourceFee(t focus.TB, envelope focus.Value, wantFee int64) {
+	t.Helper()
+	focus.AssertResourceFee(fatal(t), envelope, wantFee)
+}
+
 // ReturnValue is focus.AssertReturnValue, stopping the test on failure.
 func ReturnValue(t focus.TB, meta focus.Value, want focus.Value) {
 	t.Helper()
@@ -347,11 +385,32 @@ func ContractTrapped(t focus.TB, result focus.Value) {
 	focus.AssertContractTrapped(fatal(t), result)
 }
 
-// ContractTrappedWith is focus.AssertContractTrappedWith, stopping the test on
-// failure.
+// ContractTrappedWith is focus.AssertContractTrappedWith, stopping the test
+// on failure.
 func ContractTrappedWith(t focus.TB, result focus.Value, want string) {
 	t.Helper()
 	focus.AssertContractTrappedWith(fatal(t), result, want)
+}
+
+// SimulationSucceeded is focus.AssertSimulationSucceeded, stopping the test on
+// failure.
+func SimulationSucceeded(t focus.TB, result *simulate.SimulateResult) {
+	t.Helper()
+	focus.AssertSimulationSucceeded(fatal(t), result)
+}
+
+// SimulatedReturnValue is focus.AssertSimulatedReturnValue, stopping the test
+// on failure.
+func SimulatedReturnValue(t focus.TB, result *simulate.SimulateResult, want focus.Value) {
+	t.Helper()
+	focus.AssertSimulatedReturnValue(fatal(t), result, want)
+}
+
+// InstructionsBelow is focus.AssertInstructionsBelow, stopping the test on
+// failure.
+func InstructionsBelow(t focus.TB, result *simulate.SimulateResult, limit uint32) {
+	t.Helper()
+	focus.AssertInstructionsBelow(fatal(t), result, limit)
 }
 
 // ContractError is focus.AssertContractError, stopping the test on failure.
@@ -371,6 +430,13 @@ func ConstructorState(t focus.TB, meta focus.Value, want focus.ConstructorState)
 func ContractOwner(t focus.TB, meta focus.Value, contractID, wantOwner string) {
 	t.Helper()
 	focus.AssertContractOwner(fatal(t), meta, contractID, wantOwner)
+}
+
+// ContractAuthValid is focus.AssertContractAuthValid, stopping the test on
+// failure.
+func ContractAuthValid(t focus.TB, envelope focus.Value, expectedInvoker string, expectedCall focus.ContractCall) {
+	t.Helper()
+	focus.AssertContractAuthValid(fatal(t), envelope, expectedInvoker, expectedCall)
 }
 
 // DiagnosticEventOrder is focus.AssertDiagnosticEventOrder, stopping the test

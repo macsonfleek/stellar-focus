@@ -191,6 +191,94 @@ and call outcome included — for checks this package does not provide.
 `focus.TrapEvidence{Result, Meta}` pair when the result and meta are separate
 fixtures, and searches the rendered host diagnostics.
 
+#### The whole event sequence
+
+`AssertEventEmitted` matches one event anywhere in the meta. When the order is
+the point — `init`, `deposit`, `transfer`, `audit` — assert the whole sequence:
+
+```go
+focus.AssertEventsEqual(t, meta, []focus.Event{
+	{Topics: []any{"init"}},
+	{Topics: []any{"deposit"}, Data: scAmount(100)},
+	{Topics: []any{"audit"}},
+})
+```
+
+The count has to match too, and each event is matched at its own index. A
+failure names the event that deviated and prints what was emitted beside what
+was wanted:
+
+```
+AssertEventsEqual: event 1 of 3 does not match
+
+  actual:   topics["deposit"]  data u32(100)
+  expected: topics["withdraw"]  data u32(100)
+```
+
+Options relax the comparison for the whole list — `focus.IgnoreEventData()`,
+`focus.IgnoreEventTopics()` and `focus.IgnoreEventContractID()` — and whatever
+they relax is named in the failure, because an assertion that quietly stops
+checking something is how a test starts passing for the wrong reason.
+
+#### Resource budgets
+
+```go
+focus.AssertSorobanResources(t, envelope, 100_000, 64_000, 64_000)
+focus.AssertResourceFee(t, envelope, 100_000_000)
+```
+
+`AssertSorobanResources` checks the limits the transaction bids — CPU
+instructions, ledger bytes read and written — against the budgets a test
+gives, and names every dimension that went over. A budget of zero leaves that
+dimension unchecked. `AssertResourceFee` pins the refundable resource fee, in
+stroops and in XLM.
+
+### Preflighting a transaction
+
+A simulation runs a transaction against the current ledger state without
+submitting it, and reports what would have happened: the return value, the
+ledger entries it would touch, and the resources it would consume. That makes
+a resource regression visible before submission rather than after it has
+failed on chain.
+
+```go
+result, err := simulate.Simulate(ctx, src, envelopeXDR)
+if err != nil {
+	t.Fatalf("simulation failed: %v", err)
+}
+
+focus.AssertSimulationSucceeded(t, result)
+focus.AssertSimulatedReturnValue(t, result, xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: &seven})
+focus.AssertInstructionsBelow(t, result, 100_000)
+```
+
+The network call lives in `pkg/simulate`, never in `pkg/focus` or
+`pkg/golden`: the assertions take the result and nothing else. The seam is
+`simulate.Source`, which `capture.RPCSource` implements against a real
+endpoint and a test implements with a canned response, so a suite stays
+offline.
+
+**A simulation is not a fixture.** It runs against the ledger as it is right
+now, so the same transaction simulated twice can report a different footprint
+and a different instruction count. Assert on a budget and a shape, not on an
+exact snapshot.
+
+### Operations
+
+`AssertOperationTypes` checks the discriminator of an operation. The typed
+assertions check what the operation does:
+
+```go
+focus.AssertPayment(t, envelope, 0, dest, 100_0000000, "native")
+focus.AssertCreateAccount(t, envelope, 0, dest, 20_0000000)
+focus.AssertChangeTrust(t, envelope, 0, "USDC:GA2J…HVAW", 1000_0000000)
+```
+
+Amounts are in stroops, and a failure shows both units:
+
+```
+AssertPayment: operation 0 amount is 1000000000 (100.0000000 XLM), want 2000000000 (200.0000000 XLM)
+```
 `AssertContractError` answers the question a trap leaves open: not *that* the
 contract failed but *how*. It reads the Soroban return value and the host's
 error diagnostic, and names both sides of the comparison:
@@ -468,6 +556,42 @@ A golden test nobody can review is a golden test nobody updates carefully.
 The flag is namespaced `-focus.update` so it never collides with your own
 `-update`.
 
+### Table-driven golden tests
+
+A suite of fixtures is usually a table, and a table needs the failure to say
+which row broke. `AssertAll` runs every case, reports the whole table, and
+attaches the row's index, name and description to the failure:
+
+```go
+g := golden.New(t, golden.WithDir("testdata"))
+
+g.AssertAll([]golden.Case{
+	{Name: "payment_v1", Value: BuildPayment(dest, "100"), Description: "the first payment"},
+	{Name: "payment_v2", Value: BuildPayment(dest, "200"), Description: "a payment that moved"},
+})
+```
+
+```console
+    golden: table summary — 2 case(s), 1 failed:
+      [1/2] payment_v1: ok
+      [2/2] payment_v2: DRIFTED (a payment that moved)
+    golden: [2/2] payment_v2 (a payment that moved) failed:
+    AssertEqualAs: envelopes differ — 1 difference
+      ~ V1.Tx.Operations[0].Body.PaymentOp.Amount
+          - 1000000000 100.0000000 (stroops: 1000000000)
+          + 2000000000 200.0000000 (stroops: 2000000000)
+```
+
+Every case runs even when an earlier one fails, so one broken fixture does
+not hide the state of the rest. A case may carry its own assertion options,
+which are merged over the suite's:
+
+```go
+g.AssertAll([]golden.Case{
+	{Name: "payment", Value: got, Options: []focus.Option{focus.IgnoreSequence()}},
+})
+```
+
 ### Fatal golden assertions
 
 `Assert` reports a failure and lets the test continue, which is what you
@@ -522,6 +646,29 @@ hand-written fixture is reported as skipped rather than quietly passing a
 check it was never eligible for.
 
 Defaults to **testnet**; use `--network mainnet` or `--rpc-url`.
+
+### Checking less of it
+
+A repository with hundreds of fixtures does not need all of them re-fetched on
+every commit, so a run can be narrowed:
+
+```sh
+focus verify testdata/ --since 48h              # only fixtures captured recently
+focus verify testdata/ --since 2026-10-01T00:00:00Z
+focus verify testdata/ --filter 'envelope*'     # only fixtures matching a glob
+focus verify testdata/ --filter network:testnet # …or a metadata selector
+focus verify testdata/ --drifted-only           # only what drifted last time
+```
+
+A fixture left out is reported as `FILTERED`, with the reason, so a narrowed
+run never looks like a run that found nothing wrong.
+
+`--drifted-only` remembers what each run found, in `.focus/verify-cache.json`.
+Only the fixtures that drifted or could not be checked are looked at again —
+and a fixture whose contents have changed since the last check is checked too,
+because the old outcome says nothing about a fixture that has moved. The cache
+is a speed-up, never a source of truth; delete it and the next run checks
+everything.
 
 ### Verifying in a pipeline
 
@@ -666,8 +813,80 @@ focus capture tx 2b2e276a8f99a292… --sanitize
 replaces data entry values with `[REDACTED_DATA]`, and `--scrub-keys`
 replaces anything shaped like a secret key (`S` and 55 more characters) with
 `[REDACTED_SECRET_KEY]`; `--sanitize` is all three. The decoded section is
-rendered from the masked XDR, so it is clean too. A sanitized fixture no
-longer matches the chain, so `focus verify` skips it.
+rendered from the masked XDR, so it is clean too.
+
+A sanitized fixture no longer matches the chain, so `focus verify` skips it.
+
+### Finding the fixtures
+
+A directory is searched all the way down, so a suite that keeps its fixtures
+in `testdata/envelopes/`, `testdata/results/` and `testdata/soroban/` is
+checked in full:
+
+```sh
+focus verify testdata/
+```
+
+A path may also be a pattern, where `**` stands for any number of
+directories:
+
+```sh
+focus verify 'testdata/**/*.golden.json'
+focus verify 'testdata/*/envelope.golden.json'
+```
+
+Hidden directories are skipped, and a `.focusignore` file lists the paths to
+leave out — a directory of scratch or benchmark fixtures, say:
+
+```
+# not real chain data
+bench
+scratch/**
+```
+
+### Capturing in bulk
+
+Recording twenty transactions one command at a time means twenty processes
+and twenty connections. `--batch` reads the hashes from a file instead and
+captures them a few at a time:
+
+```sh
+focus capture tx --batch hashes.txt --out testdata/ --concurrency 4
+```
+
+```console
+$ cat hashes.txt
+# the transactions of the fixture suite
+2b2e276a8f99a2927580eca2c8d665c0adaef9526476f5549269798380a66648
+failed_payment 3c3f387b9f0ab3a38690fdb3d9d776d1dbebf063758a66583a6799491b77759
+
+$ focus capture tx --batch hashes.txt --out testdata/
+[1/2] captured tx 2b2e276a -> testdata/2b2e276a_envelope.golden.json
+[2/2] captured tx 3c3f387b -> testdata/failed_payment_3c3f387b_envelope.golden.json
+
+2 transaction(s): 2 captured, 0 not found, 0 failed
+```
+
+A line is a hash, optionally preceded by a prefix for the fixtures it
+produces. Blank lines and `#` comments are ignored, and `-` reads the hashes
+from standard input. A transaction that cannot be captured is reported and
+the batch carries on; `--concurrency` caps how many captures are in flight at
+once, and `--rate` spaces them out for an endpoint that rate-limits.
+
+### Encoding a fixture offline
+
+A payload that is already in hand — in a debug log, a test case, an RPC
+response — becomes a reviewable fixture without a network:
+
+```sh
+focus encode "AAAAAgAAA..." --type TransactionEnvelope --out testdata/payment.golden.json
+cat envelope.xdr | focus encode --type TransactionEnvelope --out testdata/payment.golden.json --description "a payment fixture"
+```
+
+The payload may be base64 or hex. The XDR type is detected when `--type` is
+not given, which is ambiguous for short payloads, so naming it is better
+wherever the type is known. With no `--out` the fixture is printed to
+standard output.
 
 ### Configuration
 
@@ -694,6 +913,10 @@ force: false
 
 An explicit `--config` must exist; a missing `.focus.yaml` is simply ignored.
 Invalid settings fail before any request is made.
+
+`focus encode` writes one file rather than a directory, so its output
+setting is spelled `out-file` (`FOCUS_OUT_FILE`), while `--out` on the
+command line stays `--out`.
 
 ### Refreshing fixtures
 
@@ -824,3 +1047,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architect
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+## Final Implementation

@@ -10,6 +10,8 @@ Working and tested:
   failure output that names the changed field path, plus a round-trip
   assertion that re-encodes a value and diffs the two decoded trees so a
   lossy encoder is reported by field rather than by base64
+- Executable `AssertEnvelopeEqual` godoc example and offline example tests
+  covering a matching envelope, a changed sequence number, and invalid XDR
 - Field assertions: source, fee, sequence, memo, operation counts and types,
   signature count, fee-bump, and the source account an individual operation
   names — including the account it falls back to when it names none
@@ -31,6 +33,15 @@ Working and tested:
   explanation and hint; operation result codes can be checked by short name,
   and an unknown code or an XDR constant name is called out as such
 - Soroban: event matching, event counts, return values, contract traps
+- Ordered event sequences: `AssertEventsEqual` pins the whole list of contract
+  events — the count, the order and each event's payload — and a failure prints
+  the event that deviated beside the event that was wanted, with the options
+  that relaxed the comparison named
+- Soroban resource budgets and the refundable resource fee, read from the
+  transaction's `SorobanTransactionData`
+- Typed operation assertions: what a payment pays and to whom, what starting
+  balance an account is created with, and what limit a trustline is changed to
+  — with amounts in both stroops and XLM
 - Contract errors by category and code: the `ScError` a failed invocation
   recorded — a contract's own error code, or one of the host's named codes —
   read from the Soroban return value or from the host's error diagnostic
@@ -60,6 +71,10 @@ Working and tested:
 - Contract deployment state: the storage a `__constructor` writes — instance,
   persistent and temporary — and the owner it binds, read from the deployment
   transaction's meta with no network call
+- Contract invocation authorizations: who authorized which call — the invoker
+  behind every credential form (source account, address, address v2,
+  delegated) and the invocation tree covered, read from the envelope with no
+  network call
 - Clawback assertions: the clawback operations themselves, balance forfeiture
   proven from the meta — including a full clawback that removes the trustline
   — and claimable balance revocation by id, key or entry
@@ -107,10 +122,29 @@ Working and tested:
   export to Go fuzz seed corpora
 - `focus capture` and `focus verify` against a live network, from a Soroban
   RPC endpoint or from Horizon, chosen with `--source`
+- Table-driven golden tests: `golden.AssertAll` runs every case in a table,
+  reports the whole table on failure — `[2/5] payment_v2: DRIFTED` — and
+  repeats each failure with the row's index, name and description attached,
+  so a broken row is found without scanning filenames (`pkg/golden/golden.go`)
+- Recursive fixture discovery for `verify`, `lint` and `refresh`: a directory
+  is searched all the way down, so nested fixtures are no longer skipped; a
+  path may be a pattern, with `**` standing for any number of directories;
+  and a `.focusignore` file lists the paths to leave out
+  (`internal/cli/collect.go`)
+- Narrowed verification: `focus verify --since`, `--filter` and `--drifted-only`,
+  so a repository with hundreds of fixtures can be re-checked without
+  re-fetching all of them, with the fixtures left out reported rather than
+  quietly passing
 - A machine-readable `focus verify`: `--format json` prints one JSON document
   with the counts, the status of every fixture and the paths that changed, so
   a pipeline can post a pull-request comment or a step summary without
   parsing terminal text. The exit status is the same in either format
+- Bulk capture: `focus capture tx --batch` reads the hashes from a file and
+  captures them with a worker pool, reporting each transaction as it lands
+  and carrying on past one that cannot be captured (`internal/cli/batch.go`)
+- Offline fixture generation: `focus encode` turns a base64 or hex payload
+  into a reviewable fixture, with the XDR type detected when it is not named
+  and no network involved
 - An embedded fuzz corpus of the repository's captured mainnet XDR, for
   downstream projects that want to fuzz their own decoders (`pkg/fuzz`)
 - Unified CLI configuration: flags, `FOCUS_*` environment variables and a
@@ -155,12 +189,25 @@ Working and tested:
   contract that does not match the one the ledger names
   (`pkg/capture/contract_wasm.go`)
 - Dependency-light library, enforced by compiled-graph and AST tests
+- Package boundaries between focus, golden, capture, and CLI enforced by an
+  offline compiled-graph test (`pkg/focus/decouple_test.go`)
 - No assertion panics, enforced by test via a panic-safe harness
   (`SafeExec`/`SafeCall` in `pkg/focus/safe_exec.go`)
 - Colourized terminal output highlighting the mismatched field, with the
   structural diff rendering each change side by side as labelled `want`/`got`
   values that strip cleanly to plain text (`pkg/focus/terminal.go`,
   `pkg/focus/message.go`; opt-in via `WithColor("always")`)
+- Concise XDR struct formatter (`pkg/focus/pretty.go`) — `Pretty` and
+  `PrettyAs` functions for debugging and diagnostics, with enriched values
+  (stroops+XLM, asset codes, memo types, result codes) and deterministic
+  output matching assertion failure vocabulary
+- Enhanced `internal/faketb.TB` — count queries (`ErrorCount`, `FatalCount`, `TotalCount`),
+  fatal detection (`FatalfCalled`), latest message accessors (`LastError`, `LastFatal`),
+  substring filtering (`ErrorsContaining`, `FatalsContaining`), state management
+  (`Reset`), and fluent assertion helpers (`AssertErrorCount`, `AssertFatalCount`,
+  `AssertTotalCount`, `AssertErrorContaining`, `AssertFatalContaining`,
+  `AssertNoErrors`, `AssertNoFatals`, `AssertNoFailures`); all thread-safe with
+  100% test coverage
 - Assertion adapters for other test ecosystems (`pkg/focus/adapters.go`):
   `Check` and the `Err*` wrappers turn any focus assertion into an error
   testify's `assert`/`require` (or gocheck) can report with the same
@@ -201,6 +248,12 @@ Known limits, stated plainly:
   wall clock on a diagnostic event, so a stream is placed in time by the ledger
   it was applied in and that ledger's close time, which a test supplies from
   capture provenance, rather than by a timestamp on each event.
+- **Authorization signatures are not verified.** `AssertContractAuthValid`
+  checks the structure and identity of an authorization — who authorized
+  which call — from the envelope the test already holds. What a signature
+  signs derives from the network passphrase, which an offline assertion is
+  not given, so the nonce and expiration ledger are shown for a test to pin
+  rather than checked here.
 - **The library API is not frozen.** Expect breaking changes before v1.0.
 
 ## Near term
