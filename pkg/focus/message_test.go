@@ -86,7 +86,7 @@ func TestFailureMessageDiffContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading assertion message: %v", err)
 	}
-	if strings.Index(msg, "~ V1.Tx.Operations[0].Body.PaymentOp.Asset") < 0 ||
+	if !strings.Contains(msg, "~ V1.Tx.Operations[0].Body.PaymentOp.Asset") ||
 		strings.Index(msg, "Body.PaymentOp.Amount =") < strings.Index(msg, "~ V1.Tx.Operations[0].Body.PaymentOp.Asset") {
 		t.Errorf("following context does not appear after the changed field:\n%s", msg)
 	}
